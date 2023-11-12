@@ -52,6 +52,7 @@ The assignment involves coordinating philosophers placed at the nodes of an undi
 Athulya Ganesh
 
 ## Acknowledgments
+- https://blog.acolyer.org/2015/06/11/the-drinking-philosophers-problem/
 
 - **FINISH HERE**- 
 
