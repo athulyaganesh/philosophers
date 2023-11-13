@@ -11,12 +11,6 @@
 #include <cstring>
 #include <algorithm>
 
-/**
- * Drinking Philosophers Problem - Chandy and Misra's solution
- *
- * @cite    https://www.cs.utexas.edu/users/misra/scannedPdf.dir/DrinkingPhil.pdf
- * @author  Jiupeng Zhang (jzh149@ur.rochester.edu)
- */
 enum class DiningState {
     THINKING = 1, HUNGRY, EATING
 };
