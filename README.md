@@ -21,9 +21,9 @@ This assignment focuses on creative design thinking problems related to distribu
 ## Instructions
 
 1. Clone this repository to your local machine.
-2. Compile the source code files using the provided instructions.
+2. Compile the source code files using the provided instructions in the .pdf file. 
 3. Run the program with the necessary command line arguments.
-4. Review the results of the alpha and beta testing.
+4. Review the results of the alpha and beta testing also in the .pdf file. 
 
 ## Problem Statement
 
@@ -31,21 +31,12 @@ The assignment involves coordinating philosophers placed at the nodes of an undi
 
 ## Files Included
 
--  **FINISH HERE** - 
+- main.cpp
+- notes.pdf 
 
 ## How to Compile and Run
 
-- **FINISH HERE**- 
-
-## Test Results
-
-### Alpha Testing
-
-- **FINISH HERE**- 
-
-### Beta Testing
-
-- **FINISH HERE**- 
+- Please review notes.pdf document for this information
 
 ## Author
 
@@ -54,5 +45,4 @@ Athulya Ganesh
 ## Acknowledgments
 - https://blog.acolyer.org/2015/06/11/the-drinking-philosophers-problem/
 
-- **FINISH HERE**- 
 
