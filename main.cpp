@@ -10,30 +10,26 @@
 #include <atomic>
 #include <cstring>
 #include <algorithm>
-
-enum class DiningState {
-    THINKING = 1, HUNGRY, EATING
-};
-
-enum class DrinkingState {
-    TRANQUIL = 1, THIRSTY, DRINKING
-};
+#include <iostream>
+#include <chrono>
+#include <thread>
+typedef std::chrono::high_resolution_clock Clock;
 
 struct Fork {
     std::mutex lock;
-    std::condition_variable reqf_cond;
-    std::condition_variable fork_cond;
+    std::condition_variable condition_req_fork;
+    std::condition_variable condition_fork;
     volatile bool hold;
     volatile bool reqf;
     volatile bool dirty = true;
 };
+
 
 struct Bottle {
     std::mutex lock;
     std::condition_variable condition{};
     volatile bool hold;
     volatile bool reqb;
-    // volatile bool need{}; // ignored for simplicity
 };
 
 struct Resource {
@@ -41,80 +37,60 @@ struct Resource {
     Bottle bottle;
 };
 
-int parse_opts(int argc, char **argv);
+enum class Dine {
+    THINKING = 1, HUNGRY, EATING
+};
 
-std::vector<std::vector<std::pair<int, Resource*>>> init_graph(int mode);
+enum class Drink {
+    TRANQUIL = 1, THIRSTY, DRINKING
+};
+
 
 void *philosopher(void *pid);
 
 void tranquil(long id);
 
-void drinking(long id);
+void drink(long id);
 
-void send_reqf(long from, long to);
+void send_fork_request(long from, long to);
 
 void send_fork(long from, long to);
 
-void send_reqb(long from, long to);
+void send_bottle_request(long from, long to);
 
 void send_bottle(long from, long to);
+
+
+
+int parser(int argc, char **argv);
+
+std::vector<std::vector<std::pair<int, Resource*>>> graph_initialize(int mode);
+
+
 
 /*
  * To generate arbitrary interleavings, a thinking or eating (drinking) philosopher should call the linux usleep
  * function with a randomly chosen argument. I suggest values in the range of 1–1,000 microseconds. If you make the
  * sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
  */
-constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000; // in ms
-constexpr long DRINKING_MIN = 1, DRINKING_MAX = 1000; // in ms
+constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000;  
+constexpr long DRINKING_MIN = 1, DRINKING_MAX = 1000; 
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
 constexpr long DRINKING_RANGE = DRINKING_MAX - DRINKING_MIN;
 
 bool debug = false;
 int p_cnt;
-int session_cnt = 20;
-std::string conf_path;
+int count_session = 20;
+std::string path;
 std::atomic_bool start;
-std::vector<DiningState> dining_states;
-std::vector<DrinkingState> drinking_states;
+std::vector<Dine> dineState;
+std::vector<Drink> drinkState;
 std::vector<std::vector<std::pair<int, Resource*>>> graph;
 std::vector<unsigned int> rand_seeds;
 std::mutex print_lock;
 
-int main(int argc, char **argv) {
-    graph = init_graph(parse_opts(argc, argv));
-    if (debug) {
-        std::cout << "press any key to continue." << std::endl;
-        getchar();
 
-        std::cout << "graph initialization:" << std::endl;
-        for (int i = 0; i < graph.size(); i++) {
-            std::cout << i << ": ";
-            for (const auto &adjacent : graph[i]) {
-                std::cout << adjacent.first << " (" << adjacent.second << ") ";
-            }
-            std::cout << std::endl;
-        }
-        printf("config: %d philosophers will drink %d times.\n\n", p_cnt, session_cnt);
-    }
-
-    dining_states.resize(static_cast<unsigned long>(p_cnt), DiningState::THINKING);
-    drinking_states.resize(static_cast<unsigned long>(p_cnt), DrinkingState::TRANQUIL);
-
-    pthread_t threads[p_cnt];
-    rand_seeds.resize(static_cast<unsigned long>(p_cnt));
-    srand(static_cast<unsigned int>(time(nullptr)));
-    for (long i = 0; i < p_cnt; i++) {
-        pthread_create(&threads[i], nullptr, philosopher, (void *) i);
-        rand_seeds[i] = static_cast<unsigned int>(rand());
-    }
-    start = true;
-    for (int i = 0; i < p_cnt; i++) {
-        pthread_join(threads[i], nullptr);
-    }
-    return 0;
-}
-
-int parse_opts(int argc, char **argv) {
+int parser(int argc, char **argv) {
     int opt;
     static struct option opts[] = {
             {"session",  required_argument, nullptr, 's'},
@@ -124,44 +100,44 @@ int parse_opts(int argc, char **argv) {
     while ((opt = getopt_long(argc, argv, ":s:f:-d", opts, nullptr)) != EOF) {
         switch (opt) {
             case 's':
-                session_cnt = static_cast<int>(std::strtol(optarg, nullptr, 10));
+                count_session = static_cast<int>(std::strtol(optarg, nullptr, 10));
                 break;
             case 'f':
-                conf_path = optarg;
+                path = optarg;
                 break;
             case 'd':
                 debug = true;
                 break;
             case ':':
-                std::cerr << "invalid option: needs a value" << opt << std::endl;
+                std::cerr << "INVALID : needs value" << opt << std::endl;
                 break;
             case '?':
-                std::cout << "usage: philosophers -s <session_count> -f <filename> [-]" << std::endl;
+                std::cout << "USAGE: philosophers -s <session_count> -f <filename> [-]" << std::endl;
                 exit(-1);
             default:
                 break;
         }
     }
     if (debug) {
-        std::cout << "sessions count:         " << (session_cnt = session_cnt < 1 ? 20 : session_cnt) << std::endl;
+        std::cout << "SESSIONS COUNT:   " << (count_session = count_session < 1 ? 20 : count_session) << std::endl;
     }
     for (; optind < argc; optind++) {
         if (!strcmp(argv[optind], "-")) {
             return 2;
         }
     }
-    if (conf_path.length()) {
+    if (path.length()) {
         if (debug) {
-            std::cout << "configuration path:     " << conf_path << std::endl;
+            std::cout << " PATH: " << path << std::endl;
         }
         return 1;
     }
     return 0;
 }
 
-std::vector<std::vector<std::pair<int, Resource*>>> init_graph(int mode) {
+std::vector<std::vector<std::pair<int, Resource*>>> graph_initialize(int mode) {
     if (mode == 1) {
-        std::ifstream file(conf_path);
+        std::ifstream file(path);
         if (file.good()) {
             int p1, p2, n = 0;
             file >> p_cnt;
@@ -169,7 +145,7 @@ std::vector<std::vector<std::pair<int, Resource*>>> init_graph(int mode) {
             for (int i = 0; i < p_cnt; i++) {
                 file >> p1 >> p2;
                 if (p1 < 1 || p2 < 1 || p1 > p_cnt || p2 > p_cnt) {
-                    std::cerr << "error: invalid graph" << std::endl;
+                    std::cerr << "ERROR: invalid graph" << std::endl;
                     exit(-1);
                 }
                 Resource *pos = new Resource, *neg = new Resource;
@@ -180,20 +156,20 @@ std::vector<std::vector<std::pair<int, Resource*>>> init_graph(int mode) {
                 n++;
             }
             if (n < p_cnt - 1 || n > (p_cnt * (p_cnt - 1) / 2)) {
-                std::cerr << "error: invalid graph" << std::endl;
+                std::cerr << "ERROR: invalid graph" << std::endl;
                 exit(-1);
             }
             return graph;
         } else {
-            std::cerr << "error: file '" << conf_path << "' not found" << std::endl;
+            std::cerr << "ERROR: file '" << path << "' not found" << std::endl;
             exit(-1);
         }
 
     } else if (mode == 2) {
         int p1, p2, n = 0;
-        std::cout << "number of philosophers: ";
+        std::cout << "NUM PHILOSOPHERS: ";
         std::cin >> p_cnt;
-        std::cout << "edge pairs (0 to exit):" << std::endl;
+        std::cout << "EDGE PAIRS (0 to exit):" << std::endl;
         std::vector<std::vector<std::pair<int, Resource*>>> graph(static_cast<unsigned long>(p_cnt));
         while (true) {
             std::cin >> p1 >> p2;
@@ -206,7 +182,7 @@ std::vector<std::vector<std::pair<int, Resource*>>> init_graph(int mode) {
             n++;
         }
         if (n < p_cnt - 1 || n > (p_cnt * (p_cnt - 1) / 2)) {
-            std::cerr << "error: invalid graph" << std::endl;
+            std::cerr << "ERROR: invalid graph" << std::endl;
             exit(-1);
         }
         return graph;
@@ -229,11 +205,11 @@ std::vector<std::vector<std::pair<int, Resource*>>> init_graph(int mode) {
 void *philosopher(void *pid) {
     while (!start.load());
     long id = (long) pid;
-    for (int session = 0; session < session_cnt;) {
+    for (int session = 0; session < count_session;) {
         std::vector<std::pair<int, Resource*>> refs = graph[id];
 
-        switch (drinking_states[id]) {
-            case DrinkingState::TRANQUIL:
+        switch (drinkState[id]) {
+            case Drink::TRANQUIL:
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     Resource *resource = ref_pair.second;
                     resource->bottle.lock.lock();
@@ -244,10 +220,10 @@ void *philosopher(void *pid) {
                     resource->bottle.lock.unlock();
                 }
                 tranquil(id);
-                drinking_states[id] = DrinkingState::THIRSTY;
+                drinkState[id] = Drink::THIRSTY;
                 break;
 
-            case DrinkingState::THIRSTY:
+            case Drink::THIRSTY:
                 // For simplicity and for ease of grading, each drinking session should employ
                 // all adjacent bottles (not the arbitrary subset allowed by Chandy and Misra).
                 for (std::pair<int, Resource*> ref_pair : refs) {
@@ -264,70 +240,68 @@ void *philosopher(void *pid) {
                             resource->bottle.condition.wait(lk);
                         }
                         // single request sent
-                        send_reqb(id, ref_pair.first);
+                        send_bottle_request(id, ref_pair.first);
                         resource->bottle.reqb = false;
                     }
                     resource->bottle.lock.unlock();
                 }
                 // all bottles received
-                drinking_states[id] = DrinkingState::DRINKING;
+                drinkState[id] = Drink::DRINKING;
                 break;
 
-            case DrinkingState::DRINKING:
-                drinking(id);
+            case Drink::DRINKING:
+                drink(id);
                 print_lock.lock();
                 std::cout << "philosopher " << id + 1 << " drinking" << std::endl;
                 print_lock.unlock();
-                drinking_states[id] = DrinkingState::TRANQUIL;
+                drinkState[id] = Drink::TRANQUIL;
                 session++;
-                if (session == session_cnt) {
-                    dining_states[id] = DiningState::THINKING;
+                if (session == count_session) {
+                    dineState[id] = Dine::THINKING;
                 }
                 break;
         }
 
-        switch (dining_states[id]) {
-            case DiningState::THINKING:
-                print_lock.lock();
-                std::cout << "philosopher " << id + 1 << " thinking" << std::endl;
+        switch (dineState[id]) {
+            case Dine::THINKING: 
+                 print_lock.lock(); 
+                std::cout << "Thinking time for philosopher " << id + 1 << std::endl;
                 print_lock.unlock();
+
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
                     to->second->fork.lock.lock();
-                    if (session == session_cnt || (to->second->fork.hold && to->second->fork.dirty && to->second->fork.reqf)) {
+                    if (session == count_session || (to->second->fork.hold && to->second->fork.dirty && to->second->fork.reqf)) {
                         send_fork(id, ref_pair.first);
                         to->second->fork.hold = false;
                         to->second->fork.dirty = false;
                     }
                     to->second->fork.lock.unlock();
                 }
-                if (session == session_cnt) {
+                if (session == count_session) {
                     break;
                 }
 
                 // (D1) A thinking, thirsty philosopher becomes hungry
-                if (drinking_states[id] == DrinkingState::THIRSTY) {
-                    dining_states[id] = DiningState::HUNGRY;
+                if (drinkState[id] == Drink::THIRSTY) {
+                    dineState[id] = Dine::HUNGRY;
                 }
                 break;
 
-            case DiningState::HUNGRY:
+            case Dine::HUNGRY:
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
-                    // fork exists, yield precedence if it is dirty
                     if (to->second->fork.hold && to->second->fork.dirty && to->second->fork.reqf) {
                         send_fork(id, ref_pair.first);
-                        to->second->fork.hold = false;
+                        to->second->fork.hold  = false;
                         to->second->fork.dirty = false;
                     }
                     if (!to->second->fork.hold) {
                         while (!to->second->fork.reqf) {
-                            // waiting for fork-ticket
                             std::unique_lock<std::mutex> lk(to->second->fork.lock);
-                            to->second->fork.reqf_cond.wait(lk);
+                            to->second->fork.condition_req_fork.wait(lk);
                         }
-                        // single request sent
-                        send_reqf(id, ref_pair.first);
+                        send_fork_request(id, ref_pair.first);
                         to->second->fork.reqf = false;
                     }
                 }
@@ -335,24 +309,22 @@ void *philosopher(void *pid) {
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
                     if (!to->second->fork.hold && !to->second->fork.reqf) {
-                        // waiting for fork
                         std::unique_lock<std::mutex> lk(to->second->fork.lock);
-                        to->second->fork.fork_cond.wait(lk);
+                        to->second->fork.condition_fork.wait(lk);
                     }
                 }
 
-                // all forks received
-                dining_states[id] = DiningState::EATING;
+                dineState[id] = Dine::EATING;
                 break;
 
-            case DiningState::EATING:
+            case Dine::EATING:
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     auto to = std::find_if(graph[id].begin(), graph[id].end(), [ref_pair](std::pair<int, Resource*> pair) -> bool {return ref_pair.first == pair.first;});
-                    to->second->fork.dirty = true; // already ate
+                    to->second->fork.dirty = true; 
                 }
-                // (D2) An eating, nonthirsty philosopher starts thinking
-                if (drinking_states[id] != DrinkingState::THIRSTY) {
-                    dining_states[id] = DiningState::THINKING;
+             
+                if (drinkState[id] != Drink::THIRSTY) {
+                    dineState[id] = Dine::THINKING;
                 }
                 break;
         }
@@ -360,61 +332,53 @@ void *philosopher(void *pid) {
     return nullptr;
 }
 
-// (R1) Requesting a fork f:
-void send_reqf(long from, long to) {
+void send_fork_request(long from, long to) {
     auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource*> ref_pair) -> bool {
         return from == ref_pair.first;
     });
     if (it == graph[to].end()) {
-        std::cerr << "warn: reverse edge for <" << from << "> not found" << std::endl;
+        std::cerr << "WARN: reverse edge for <" << from << "> not found" << std::endl;
         return;
     }
-    // (R3) Receiving a request token for f:
     it->second->fork.reqf = true;
-    it->second->fork.reqf_cond.notify_one();
+    it->second->fork.condition_req_fork.notify_one();
 }
 
-// (R2) Releasing a fork f:
 void send_fork(long from, long to) {
     auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource*> ref_pair) -> bool {
         return from == ref_pair.first;
     });
     if (it == graph[to].end()) {
-        std::cerr << "warn: reverse edge for <" << from << "> not found" << std::endl;
+        std::cerr << "WARN: reverse edge for <" << from << "> not found" << std::endl;
         return;
     }
-    // (R4) Receiving a fork f:
     it->second->fork.dirty = false;
     it->second->fork.hold = true;
-    it->second->fork.fork_cond.notify_one();
+    it->second->fork.condition_fork.notify_one();
 }
 
-// (R1) Requesting a Bottle:
-void send_reqb(long from, long to) {
+void send_bottle_request(long from, long to) {
     auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource*> ref_pair) -> bool {
         return from == ref_pair.first;
     });
     if (it == graph[to].end()) {
-        std::cerr << "warn: reverse edge for <" << from << "> not found" << std::endl;
+        std::cerr << "WARN: reverse edge for <" << from << "> not found" << std::endl;
         return;
     }
-    // (R3) Receive Request for a Bottle:
     it->second->bottle.lock.lock();
     it->second->bottle.reqb = true;
     it->second->bottle.condition.notify_one();
     it->second->bottle.lock.unlock();
 }
 
-// (R2) Send a Bottle:
 void send_bottle(long from, long to) {
     auto it = std::find_if(graph[to].begin(), graph[to].end(), [from](std::pair<int, Resource*> ref_pair) -> bool {
         return from == ref_pair.first;
     });
     if (it == graph[to].end()) {
-        std::cerr << "warn: reverse edge for <" << from << "> not found" << std::endl;
+        std::cerr << "WARN: reverse edge for <" << from << "> not found" << std::endl;
         return;
     }
-    // (R4) Receive a Bottle:
     it->second->bottle.lock.lock();
     it->second->bottle.hold = true;
     it->second->bottle.lock.unlock();
@@ -424,6 +388,41 @@ void tranquil(long id) {
     usleep(static_cast<useconds_t>(TRANQUIL_MIN + rand_r(&rand_seeds[id]) % TRANQUIL_RANGE));
 }
 
-void drinking(long id) {
+void drink(long id) {
     usleep(static_cast<useconds_t>(DRINKING_MIN + rand_r(&rand_seeds[id]) % DRINKING_RANGE));
+}
+
+
+int main(int argc, char **argv) {
+    graph = graph_initialize(parser(argc, argv));
+    if (debug) {
+        std::cout << "press any key to continue." << std::endl;
+        getchar();
+
+        std::cout << "graph initialization:" << std::endl;
+        for (int i = 0; i < graph.size(); i++) {
+            std::cout << i << ": ";
+            for (const auto &adjacent : graph[i]) {
+                std::cout << adjacent.first << " (" << adjacent.second << ") ";
+            }
+            std::cout << std::endl;
+        }
+        printf("CONFIG: %d philosophers DRINK  %d times.\n\n", p_cnt, count_session);
+    }
+
+    dineState.resize(static_cast<unsigned long>(p_cnt), Dine::THINKING);
+    drinkState.resize(static_cast<unsigned long>(p_cnt), Drink::TRANQUIL);
+
+    pthread_t threads[p_cnt];
+    rand_seeds.resize(static_cast<unsigned long>(p_cnt));
+    srand(static_cast<unsigned int>(time(nullptr)));
+    for (long i = 0; i < p_cnt; i++) {
+        pthread_create(&threads[i], nullptr, philosopher, (void *) i);
+        rand_seeds[i] = static_cast<unsigned int>(rand());
+    }
+    start = true;
+    for (int i = 0; i < p_cnt; i++) {
+        pthread_join(threads[i], nullptr);
+    }
+    return 0;
 }
