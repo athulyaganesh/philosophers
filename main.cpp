@@ -67,12 +67,6 @@ int parser(int argc, char **argv);
 std::vector<std::vector<std::pair<int, Resource*>>> graph_initialize(int mode);
 
 
-
-/*
- * To generate arbitrary interleavings, a thinking or eating (drinking) philosopher should call the linux usleep
- * function with a randomly chosen argument. I suggest values in the range of 1–1,000 microseconds. If you make the
- * sleeps too short, you’ll serialize on the output lock, and execution will get much less interesting.
- */
 constexpr long TRANQUIL_MIN = 1, TRANQUIL_MAX = 1000;  
 constexpr long DRINKING_MIN = 1, DRINKING_MAX = 1000; 
 constexpr long TRANQUIL_RANGE = TRANQUIL_MAX - TRANQUIL_MIN;
@@ -188,7 +182,7 @@ std::vector<std::vector<std::pair<int, Resource*>>> graph_initialize(int mode) {
         return graph;
     }
 
-    p_cnt = 5;
+    p_cnt = 5; //num philosophers 
     Resource *r1a = new Resource, *r2a = new Resource, *r3a = new Resource, *r4a = new Resource, *r5a = new Resource;
     Resource *r1b = new Resource, *r2b = new Resource, *r3b = new Resource, *r4b = new Resource, *r5b = new Resource;
     r1a->fork.hold = r2a->fork.hold = r3a->fork.hold = r4a->fork.hold = r5a->fork.hold = true;
@@ -224,8 +218,7 @@ void *philosopher(void *pid) {
                 break;
 
             case Drink::THIRSTY:
-                // For simplicity and for ease of grading, each drinking session should employ
-                // all adjacent bottles (not the arbitrary subset allowed by Chandy and Misra).
+                
                 for (std::pair<int, Resource*> ref_pair : refs) {
                     Resource *resource = ref_pair.second;
                     resource->bottle.lock.lock();
@@ -235,17 +228,14 @@ void *philosopher(void *pid) {
                     }
                     if (!resource->bottle.hold) {
                         while (!resource->bottle.reqb) {
-                            // waiting for bottle-ticket
                             std::unique_lock<std::mutex> lk(resource->bottle.lock);
                             resource->bottle.condition.wait(lk);
                         }
-                        // single request sent
                         send_bottle_request(id, ref_pair.first);
                         resource->bottle.reqb = false;
                     }
                     resource->bottle.lock.unlock();
                 }
-                // all bottles received
                 drinkState[id] = Drink::DRINKING;
                 break;
 
@@ -426,3 +416,4 @@ int main(int argc, char **argv) {
     }
     return 0;
 }
+
